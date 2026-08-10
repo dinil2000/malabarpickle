@@ -6,7 +6,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const product = db.getProductById(params.id);
+    const product = await db.getProductById(params.id);
     if (!product) {
       return NextResponse.json(
         { success: false, error: 'Product not found' },
@@ -28,7 +28,7 @@ export async function PUT(
 ) {
   try {
     const body = await request.json();
-    const updated = db.updateProduct(params.id, body);
+    const updated = await db.updateProduct(params.id, body);
 
     if (!updated) {
       return NextResponse.json(
@@ -51,7 +51,7 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const success = db.deleteProduct(params.id);
+    const success = await db.deleteProduct(params.id);
     if (!success) {
       return NextResponse.json(
         { success: false, error: 'Failed to delete product' },

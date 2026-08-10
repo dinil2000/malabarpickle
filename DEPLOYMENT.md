@@ -44,19 +44,23 @@ Vercel provides free hosting, automatic SSL certificates, global CDN, and built-
 
 ---
 
-## 💾 Step 2: Setting Up 100% Free Storage on Vercel for Login & Registration
+## 💾 Step 2: Enabling 100% Free Permanent Storage on Vercel (1-Click Setup)
 
-The application comes with built-in serverless storage handlers for user registration and orders.
+> [!IMPORTANT]
+> **Why did data reset in Vercel previously?**
+> Serverless platforms like Vercel run on temporary (ephemeral) lambda containers. Files saved in local `/tmp` folders are cleared whenever a serverless function spins down or re-deploys.
 
-### Free Vercel Storage Options:
-1. **Out-of-the-Box Serverless Storage (Zero Config Required):**
-   - The app's `/api/auth/register` and `/api/auth/login` endpoints store user accounts and orders dynamically in serverless memory/storage (`/tmp/malabarpickle_data`).
-   - Works immediately on Vercel without creating any external database accounts.
+To make user registrations, new products, and customer orders **100% permanent across all cold starts for free**:
 
-2. **1-Click Free Vercel KV (Redis) Storage (Optional for persistent cold-start storage):**
-   - In your Vercel Dashboard, go to your project $\rightarrow$ **Storage** tab.
-   - Click **Create Database** $\rightarrow$ select **Vercel KV (Redis)** (100% Free Tier).
-   - Click **Connect to Project**. Vercel automatically sets `KV_URL` and `KV_REST_API_TOKEN` environment variables.
+### 1-Click Free Vercel KV Setup (Recommended):
+1. Go to your [Vercel Dashboard](https://vercel.com/dashboard) and select your **`malabarpickle`** project.
+2. Click on the **Storage** tab at the top of your project menu.
+3. Click **"Create Database"** $\rightarrow$ select **"Vercel KV"** (Redis - 100% Free Tier).
+4. Click **"Create & Connect"**. Select your `malabarpickle` project and environment (Production, Preview, Development).
+5. Click **Connect**. Vercel will automatically inject `KV_REST_API_URL` and `KV_REST_API_TOKEN` into your project settings.
+6. Click **Redeploy** on Vercel.
+
+That's it! Your application will automatically route all read/write operations for Users, Products, Categories, and Orders directly to Vercel's free persistent database over high-speed REST.
 
 ---
 

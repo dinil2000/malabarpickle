@@ -9,7 +9,7 @@ export async function GET(request: Request) {
     const spice = searchParams.get('spice');
     const isVeg = searchParams.get('isVeg');
 
-    let products = db.getProducts();
+    let products = await db.getProducts();
 
     if (category) {
       products = products.filter(p => p.categoryId === category || p.categoryName.toLowerCase() === category.toLowerCase());
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
 
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
 
-    const newProd = db.addProduct({
+    const newProd = await db.addProduct({
       name,
       slug,
       description,

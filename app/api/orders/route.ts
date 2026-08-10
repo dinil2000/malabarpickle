@@ -6,7 +6,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
 
-    let orders = db.getOrders();
+    let orders = await db.getOrders();
     if (userId) {
       orders = orders.filter(o => o.userId === userId);
     }
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const order = db.createOrder({
+    const order = await db.createOrder({
       userId: userId || 'guest-user',
       customerName,
       customerEmail: customerEmail || '',

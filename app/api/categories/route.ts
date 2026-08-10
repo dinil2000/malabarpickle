@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 
 export async function GET() {
   try {
-    const categories = db.getCategories();
+    const categories = await db.getCategories();
     return NextResponse.json({ success: true, categories });
   } catch (error) {
     return NextResponse.json(
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     }
 
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    const category = db.addCategory({
+    const category = await db.addCategory({
       name,
       slug,
       description,
@@ -55,7 +55,7 @@ export async function DELETE(request: Request) {
       );
     }
 
-    db.deleteCategory(id);
+    await db.deleteCategory(id);
     return NextResponse.json({ success: true, message: 'Category deleted' });
   } catch (error) {
     return NextResponse.json(

@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     }
 
     // Check if user already exists
-    const existing = db.findUserByEmail(email);
+    const existing = await db.findUserByEmail(email);
     if (existing) {
       return NextResponse.json(
         { success: false, error: 'An account with this email already exists' },
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     }
 
     // Create user in Vercel serverless storage
-    const newUser = db.createUser({
+    const newUser = await db.createUser({
       name,
       email,
       password,

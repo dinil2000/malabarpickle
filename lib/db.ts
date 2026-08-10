@@ -329,8 +329,14 @@ export const initialOrders: Order[] = [
   }
 ];
 
-// Helper for local file-system JSON backup (used in local development and serverless fallback)
+// Persistent storage setup (Vercel KV / Upstash Redis REST API + Local File Backup)
+const KV_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.VERCEL_KV_REST_API_URL;
+const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.VERCEL_KV_REST_API_TOKEN;
+
 const DATA_DIR = process.env.VERCEL ? '/tmp/malabarpickle_data' : path.join(process.cwd(), 'data_store');
+
+// In-Memory Cache for fast serverless warm starts
+const memoryCache: Record<string, any> = {};
 
 function ensureDataDir() {
   try {
@@ -342,130 +348,194 @@ function ensureDataDir() {
   }
 }
 
-function readJSON<T>(fileName: string, defaultValue: T): T {
+async function readJSON<T>(key: string, defaultValue: T): Promise<T> {
+  // 1. Try Vercel KV / Upstash Redis REST API if credentials are provided in Vercel settings
+  if (KV_URL && KV_TOKEN) {
+    try {
+      const res = await fetch(KV_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${KV_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(['GET', key]),
+        cache: 'no-store'
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json.result) {
+          const parsed = typeof json.result === 'string' ? JSON.parse(json.result) : json.result;
+          memoryCache[key] = parsed;
+          return parsed as T;
+        }
+      }
+    } catch (e) {
+      console.error(`Vercel KV read error for key "${key}":`, e);
+    }
+  }
+
+  // 2. Try In-Memory Cache if already loaded during this container warm start
+  if (memoryCache[key] !== undefined) {
+    return memoryCache[key] as T;
+  }
+
+  // 3. Fallback to Local/Serverless File System
   try {
     ensureDataDir();
-    const filePath = path.join(DATA_DIR, fileName);
+    const filePath = path.join(DATA_DIR, `${key}.json`);
     if (fs.existsSync(filePath)) {
       const data = fs.readFileSync(filePath, 'utf-8');
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      memoryCache[key] = parsed;
+      return parsed;
     }
   } catch (e) {
-    console.error(`Read error for ${fileName}`, e);
+    console.error(`Local file read error for key "${key}":`, e);
   }
+
+  // 4. Default Seed Value
+  memoryCache[key] = defaultValue;
   return defaultValue;
 }
 
-function writeJSON<T>(fileName: string, data: T): boolean {
+async function writeJSON<T>(key: string, data: T): Promise<boolean> {
+  // Update warm container memory cache immediately
+  memoryCache[key] = data;
+  let success = false;
+
+  // 1. Persist to Vercel KV / Upstash Redis REST API if connected
+  if (KV_URL && KV_TOKEN) {
+    try {
+      const res = await fetch(KV_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${KV_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(['SET', key, JSON.stringify(data)]),
+        cache: 'no-store'
+      });
+
+      if (res.ok) {
+        success = true;
+      }
+    } catch (e) {
+      console.error(`Vercel KV write error for key "${key}":`, e);
+    }
+  }
+
+  // 2. Write to Local/Serverless file system
   try {
     ensureDataDir();
-    const filePath = path.join(DATA_DIR, fileName);
+    const filePath = path.join(DATA_DIR, `${key}.json`);
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-    return true;
+    success = true;
   } catch (e) {
-    console.error(`Write error for ${fileName}`, e);
-    return false;
+    console.error(`Local file write error for key "${key}":`, e);
   }
+
+  return success;
 }
 
 // Data Access Service methods
 export const db = {
   // PRODUCTS
-  getProducts: (): Product[] => {
-    return readJSON<Product[]>('products.json', initialProducts);
+  getProducts: async (): Promise<Product[]> => {
+    return await readJSON<Product[]>('products', initialProducts);
   },
-  getProductById: (id: string): Product | undefined => {
-    const products = db.getProducts();
+  getProductById: async (id: string): Promise<Product | undefined> => {
+    const products = await db.getProducts();
     return products.find(p => p.id === id || p.slug === id);
   },
-  saveProducts: (products: Product[]): boolean => {
-    return writeJSON('products.json', products);
+  saveProducts: async (products: Product[]): Promise<boolean> => {
+    return await writeJSON('products', products);
   },
-  addProduct: (product: Omit<Product, 'id' | 'createdAt'>): Product => {
-    const products = db.getProducts();
+  addProduct: async (product: Omit<Product, 'id' | 'createdAt'>): Promise<Product> => {
+    const products = await db.getProducts();
     const newProduct: Product = {
       ...product,
       id: `prod-${Date.now()}`,
       createdAt: new Date().toISOString()
     };
     products.unshift(newProduct);
-    db.saveProducts(products);
+    await db.saveProducts(products);
     return newProduct;
   },
-  updateProduct: (id: string, updates: Partial<Product>): Product | null => {
-    const products = db.getProducts();
+  updateProduct: async (id: string, updates: Partial<Product>): Promise<Product | null> => {
+    const products = await db.getProducts();
     const index = products.findIndex(p => p.id === id);
     if (index === -1) return null;
     products[index] = { ...products[index], ...updates };
-    db.saveProducts(products);
+    await db.saveProducts(products);
     return products[index];
   },
-  deleteProduct: (id: string): boolean => {
-    const products = db.getProducts();
+  deleteProduct: async (id: string): Promise<boolean> => {
+    const products = await db.getProducts();
     const filtered = products.filter(p => p.id !== id);
-    return db.saveProducts(filtered);
+    return await db.saveProducts(filtered);
   },
 
   // CATEGORIES
-  getCategories: (): Category[] => {
-    return readJSON<Category[]>('categories.json', initialCategories);
+  getCategories: async (): Promise<Category[]> => {
+    return await readJSON<Category[]>('categories', initialCategories);
   },
-  saveCategories: (categories: Category[]): boolean => {
-    return writeJSON('categories.json', categories);
+  saveCategories: async (categories: Category[]): Promise<boolean> => {
+    return await writeJSON('categories', categories);
   },
-  addCategory: (category: Omit<Category, 'id'>): Category => {
-    const categories = db.getCategories();
+  addCategory: async (category: Omit<Category, 'id'>): Promise<Category> => {
+    const categories = await db.getCategories();
     const newCat: Category = {
       ...category,
       id: `cat-${Date.now()}`
     };
     categories.push(newCat);
-    db.saveCategories(categories);
+    await db.saveCategories(categories);
     return newCat;
   },
-  deleteCategory: (id: string): boolean => {
-    const categories = db.getCategories();
+  deleteCategory: async (id: string): Promise<boolean> => {
+    const categories = await db.getCategories();
     const filtered = categories.filter(c => c.id !== id);
-    return db.saveCategories(filtered);
+    return await db.saveCategories(filtered);
   },
 
   // USERS / AUTH
-  getUsers: (): User[] => {
-    return readJSON<User[]>('users.json', initialUsers);
+  getUsers: async (): Promise<User[]> => {
+    return await readJSON<User[]>('users', initialUsers);
   },
-  saveUsers: (users: User[]): boolean => {
-    return writeJSON('users.json', users);
+  saveUsers: async (users: User[]): Promise<boolean> => {
+    return await writeJSON('users', users);
   },
-  findUserByEmail: (email: string): User | undefined => {
-    const users = db.getUsers();
+  findUserByEmail: async (email: string): Promise<User | undefined> => {
+    const users = await db.getUsers();
     return users.find(u => u.email.toLowerCase() === email.toLowerCase());
   },
-  createUser: (user: Omit<User, 'id' | 'createdAt'>): User => {
-    const users = db.getUsers();
+  createUser: async (user: Omit<User, 'id' | 'createdAt'>): Promise<User> => {
+    const users = await db.getUsers();
     const newUser: User = {
       ...user,
       id: `usr-${Date.now()}`,
       createdAt: new Date().toISOString()
     };
     users.push(newUser);
-    db.saveUsers(users);
+    await db.saveUsers(users);
     return newUser;
   },
 
   // ORDERS
-  getOrders: (): Order[] => {
-    return readJSON<Order[]>('orders.json', initialOrders);
+  getOrders: async (): Promise<Order[]> => {
+    return await readJSON<Order[]>('orders', initialOrders);
   },
-  saveOrders: (orders: Order[]): boolean => {
-    return writeJSON('orders.json', orders);
+  saveOrders: async (orders: Order[]): Promise<boolean> => {
+    return await writeJSON('orders', orders);
   },
-  getOrderByIdOrTracking: (query: string): Order | undefined => {
-    const orders = db.getOrders();
+  getOrderByIdOrTracking: async (query: string): Promise<Order | undefined> => {
+    const orders = await db.getOrders();
     const cleanQuery = query.trim().toUpperCase();
     return orders.find(o => o.id.toUpperCase() === cleanQuery || o.trackingCode.toUpperCase() === cleanQuery);
   },
-  createOrder: (orderData: Omit<Order, 'id' | 'trackingCode' | 'createdAt' | 'updatedAt'>): Order => {
-    const orders = db.getOrders();
+  createOrder: async (orderData: Omit<Order, 'id' | 'trackingCode' | 'createdAt' | 'updatedAt'>): Promise<Order> => {
+    const orders = await db.getOrders();
     const randomNum = Math.floor(10000 + Math.random() * 90000);
     const id = `ORD-${randomNum}`;
     const trackingCode = `MP-TRK-${randomNum}`;
@@ -480,24 +550,24 @@ export const db = {
     };
 
     orders.unshift(newOrder);
-    db.saveOrders(orders);
+    await db.saveOrders(orders);
     return newOrder;
   },
-  updateOrderStatus: (id: string, status: Order['orderStatus']): Order | null => {
-    const orders = db.getOrders();
+  updateOrderStatus: async (id: string, status: Order['orderStatus']): Promise<Order | null> => {
+    const orders = await db.getOrders();
     const index = orders.findIndex(o => o.id === id);
     if (index === -1) return null;
     orders[index].orderStatus = status;
     orders[index].updatedAt = new Date().toISOString();
-    db.saveOrders(orders);
+    await db.saveOrders(orders);
     return orders[index];
   },
 
   // ADMIN DASHBOARD METRICS
-  getAdminStats: (): AdminStats => {
-    const orders = db.getOrders();
-    const products = db.getProducts();
-    const users = db.getUsers();
+  getAdminStats: async (): Promise<AdminStats> => {
+    const orders = await db.getOrders();
+    const products = await db.getProducts();
+    const users = await db.getUsers();
 
     const totalRevenue = orders
       .filter(o => o.paymentStatus === 'Paid')

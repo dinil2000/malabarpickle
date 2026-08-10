@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 
 export async function GET() {
   try {
-    const users = db.getUsers();
+    const users = await db.getUsers();
     const customers = users
       .filter(u => u.role === 'customer')
       .map(({ password, ...c }) => c);

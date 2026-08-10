@@ -13,7 +13,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = db.findUserByEmail(email);
+    const user = await db.findUserByEmail(email);
 
     if (!user) {
       return NextResponse.json(

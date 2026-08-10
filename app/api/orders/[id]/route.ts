@@ -6,7 +6,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const order = db.getOrderByIdOrTracking(params.id);
+    const order = await db.getOrderByIdOrTracking(params.id);
     if (!order) {
       return NextResponse.json(
         { success: false, error: 'Order not found. Check your Order ID or Tracking Code.' },
@@ -37,7 +37,7 @@ export async function PATCH(
       );
     }
 
-    const updated = db.updateOrderStatus(params.id, status);
+    const updated = await db.updateOrderStatus(params.id, status);
     if (!updated) {
       return NextResponse.json(
         { success: false, error: 'Order not found' },

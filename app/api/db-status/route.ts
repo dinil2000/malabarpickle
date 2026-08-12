@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { connectToDatabase } from '@/lib/mongodb';
+import mongoose from 'mongoose';
 import { UserModel } from '@/lib/models/User';
 import { ProductModel } from '@/lib/models/Product';
 import { CategoryModel } from '@/lib/models/Category';
@@ -23,13 +23,8 @@ export async function GET() {
   }
 
   try {
-    const conn = await connectToDatabase();
-    if (!conn) {
-      return NextResponse.json({
-        connected: false,
-        reason: 'Failed to connect to MongoDB Atlas. Please check Network Access (IP Whitelist 0.0.0.0/0) or database password.'
-      });
-    }
+    // Attempt direct connection with explicit error capture
+    const conn = await mongoose.connect(uri, { bufferCommands: false });
 
     const [userCount, productCount, categoryCount, orderCount] = await Promise.all([
       UserModel.countDocuments(),
@@ -51,7 +46,11 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json({
       connected: false,
-      error: error?.message || 'Unknown database connection error'
+      errorName: error?.name || 'UnknownError',
+      errorMessage: error?.message || String(error),
+      solutionHint: error?.message?.includes('auth') || error?.name?.includes('Auth')
+        ? 'Authentication failed! Please check your MongoDB Database User password in Database Access or URL-encode special characters.'
+        : 'Connection attempt failed.'
     });
   }
 }

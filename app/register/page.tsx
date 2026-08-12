@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { User as UserIcon, Phone, Mail, Lock, MapPin, ArrowRight, ShieldCheck, CheckCircle2, AlertCircle } from 'lucide-react';
+import GoogleAuthButton from '@/components/GoogleAuthButton';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -79,7 +80,6 @@ export default function RegisterPage() {
       const data = await res.json();
 
       if (data.success) {
-        // Automatically log user in
         login(data.user);
         router.push('/account');
       } else {
@@ -110,6 +110,17 @@ export default function RegisterPage() {
           <p className="text-xs text-gray-500">
             Sign up to track orders, save shipping address, and get exclusive pickle offers.
           </p>
+        </div>
+
+        {/* 1-Click Google / Gmail Registration */}
+        <GoogleAuthButton mode="register" />
+
+        <div className="flex items-center my-4">
+          <div className="flex-grow border-t border-gray-200"></div>
+          <span className="flex-shrink mx-3 text-[11px] text-gray-400 font-bold uppercase tracking-wider">
+            Or Fill Registration Form
+          </span>
+          <div className="flex-grow border-t border-gray-200"></div>
         </div>
 
         {error && (

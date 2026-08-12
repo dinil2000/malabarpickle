@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { Lock, Mail, ArrowRight, ShieldCheck } from 'lucide-react';
+import GoogleAuthButton from '@/components/GoogleAuthButton';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -67,6 +68,17 @@ export default function LoginPage() {
           <p className="text-xs text-gray-500">
             Sign in to view saved orders, manage delivery addresses, and reorder pickles.
           </p>
+        </div>
+
+        {/* Google & Gmail Login Button */}
+        <GoogleAuthButton mode="login" />
+
+        <div className="flex items-center my-4">
+          <div className="flex-grow border-t border-gray-200"></div>
+          <span className="flex-shrink mx-3 text-[11px] text-gray-400 font-bold uppercase tracking-wider">
+            Or Sign In With Email
+          </span>
+          <div className="flex-grow border-t border-gray-200"></div>
         </div>
 
         {error && (

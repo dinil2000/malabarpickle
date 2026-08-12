@@ -1,4 +1,9 @@
 import { Product, Category, User, Order, AdminStats } from './types';
+import { connectToDatabase } from './mongodb';
+import { ProductModel } from './models/Product';
+import { CategoryModel } from './models/Category';
+import { UserModel } from './models/User';
+import { OrderModel } from './models/Order';
 import fs from 'fs';
 import path from 'path';
 
@@ -329,13 +334,8 @@ export const initialOrders: Order[] = [
   }
 ];
 
-// Persistent storage setup (Vercel KV / Upstash Redis REST API + Local File Backup)
-const KV_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.VERCEL_KV_REST_API_URL;
-const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.VERCEL_KV_REST_API_TOKEN;
-
+// Memory/File Fallback Setup
 const DATA_DIR = process.env.VERCEL ? '/tmp/malabarpickle_data' : path.join(process.cwd(), 'data_store');
-
-// In-Memory Cache for fast serverless warm starts
 const memoryCache: Record<string, any> = {};
 
 function ensureDataDir() {
@@ -348,39 +348,10 @@ function ensureDataDir() {
   }
 }
 
-async function readJSON<T>(key: string, defaultValue: T): Promise<T> {
-  // 1. Try Vercel KV / Upstash Redis REST API if credentials are provided in Vercel settings
-  if (KV_URL && KV_TOKEN) {
-    try {
-      const res = await fetch(KV_URL, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${KV_TOKEN}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(['GET', key]),
-        cache: 'no-store'
-      });
-
-      if (res.ok) {
-        const json = await res.json();
-        if (json.result) {
-          const parsed = typeof json.result === 'string' ? JSON.parse(json.result) : json.result;
-          memoryCache[key] = parsed;
-          return parsed as T;
-        }
-      }
-    } catch (e) {
-      console.error(`Vercel KV read error for key "${key}":`, e);
-    }
-  }
-
-  // 2. Try In-Memory Cache if already loaded during this container warm start
+async function fallbackRead<T>(key: string, defaultValue: T): Promise<T> {
   if (memoryCache[key] !== undefined) {
     return memoryCache[key] as T;
   }
-
-  // 3. Fallback to Local/Serverless File System
   try {
     ensureDataDir();
     const filePath = path.join(DATA_DIR, `${key}.json`);
@@ -391,151 +362,307 @@ async function readJSON<T>(key: string, defaultValue: T): Promise<T> {
       return parsed;
     }
   } catch (e) {
-    console.error(`Local file read error for key "${key}":`, e);
+    console.error(`Fallback read error for ${key}:`, e);
   }
-
-  // 4. Default Seed Value
   memoryCache[key] = defaultValue;
   return defaultValue;
 }
 
-async function writeJSON<T>(key: string, data: T): Promise<boolean> {
-  // Update warm container memory cache immediately
+async function fallbackWrite<T>(key: string, data: T): Promise<boolean> {
   memoryCache[key] = data;
-  let success = false;
-
-  // 1. Persist to Vercel KV / Upstash Redis REST API if connected
-  if (KV_URL && KV_TOKEN) {
-    try {
-      const res = await fetch(KV_URL, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${KV_TOKEN}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(['SET', key, JSON.stringify(data)]),
-        cache: 'no-store'
-      });
-
-      if (res.ok) {
-        success = true;
-      }
-    } catch (e) {
-      console.error(`Vercel KV write error for key "${key}":`, e);
-    }
-  }
-
-  // 2. Write to Local/Serverless file system
   try {
     ensureDataDir();
     const filePath = path.join(DATA_DIR, `${key}.json`);
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-    success = true;
+    return true;
   } catch (e) {
-    console.error(`Local file write error for key "${key}":`, e);
+    console.error(`Fallback write error for ${key}:`, e);
+    return false;
   }
-
-  return success;
 }
 
-// Data Access Service methods
+// Data Access Service with MongoDB Atlas Integration & Fallback
 export const db = {
   // PRODUCTS
   getProducts: async (): Promise<Product[]> => {
-    return await readJSON<Product[]>('products', initialProducts);
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        let products = await ProductModel.find().lean();
+        if (!products || products.length === 0) {
+          // Auto-seed initial products to MongoDB
+          await ProductModel.insertMany(initialProducts);
+          products = await ProductModel.find().lean();
+        }
+        return JSON.parse(JSON.stringify(products));
+      } catch (err) {
+        console.error('MongoDB getProducts error:', err);
+      }
+    }
+    return await fallbackRead<Product[]>('products', initialProducts);
   },
+
   getProductById: async (id: string): Promise<Product | undefined> => {
     const products = await db.getProducts();
     return products.find(p => p.id === id || p.slug === id);
   },
+
   saveProducts: async (products: Product[]): Promise<boolean> => {
-    return await writeJSON('products', products);
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        await ProductModel.deleteMany({});
+        await ProductModel.insertMany(products);
+        return true;
+      } catch (err) {
+        console.error('MongoDB saveProducts error:', err);
+      }
+    }
+    return await fallbackWrite('products', products);
   },
+
   addProduct: async (product: Omit<Product, 'id' | 'createdAt'>): Promise<Product> => {
-    const products = await db.getProducts();
     const newProduct: Product = {
       ...product,
       id: `prod-${Date.now()}`,
       createdAt: new Date().toISOString()
     };
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        await ProductModel.create(newProduct);
+        return newProduct;
+      } catch (err) {
+        console.error('MongoDB addProduct error:', err);
+      }
+    }
+    const products = await db.getProducts();
     products.unshift(newProduct);
-    await db.saveProducts(products);
+    await fallbackWrite('products', products);
     return newProduct;
   },
+
   updateProduct: async (id: string, updates: Partial<Product>): Promise<Product | null> => {
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        const updated = await ProductModel.findOneAndUpdate({ id }, updates, { new: true }).lean();
+        if (updated) return JSON.parse(JSON.stringify(updated));
+      } catch (err) {
+        console.error('MongoDB updateProduct error:', err);
+      }
+    }
     const products = await db.getProducts();
     const index = products.findIndex(p => p.id === id);
     if (index === -1) return null;
     products[index] = { ...products[index], ...updates };
-    await db.saveProducts(products);
+    await fallbackWrite('products', products);
     return products[index];
   },
+
   deleteProduct: async (id: string): Promise<boolean> => {
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        await ProductModel.deleteOne({ id });
+        return true;
+      } catch (err) {
+        console.error('MongoDB deleteProduct error:', err);
+      }
+    }
     const products = await db.getProducts();
     const filtered = products.filter(p => p.id !== id);
-    return await db.saveProducts(filtered);
+    return await fallbackWrite('products', filtered);
   },
 
   // CATEGORIES
   getCategories: async (): Promise<Category[]> => {
-    return await readJSON<Category[]>('categories', initialCategories);
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        let categories = await CategoryModel.find().lean();
+        if (!categories || categories.length === 0) {
+          await CategoryModel.insertMany(initialCategories);
+          categories = await CategoryModel.find().lean();
+        }
+        return JSON.parse(JSON.stringify(categories));
+      } catch (err) {
+        console.error('MongoDB getCategories error:', err);
+      }
+    }
+    return await fallbackRead<Category[]>('categories', initialCategories);
   },
+
   saveCategories: async (categories: Category[]): Promise<boolean> => {
-    return await writeJSON('categories', categories);
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        await CategoryModel.deleteMany({});
+        await CategoryModel.insertMany(categories);
+        return true;
+      } catch (err) {
+        console.error('MongoDB saveCategories error:', err);
+      }
+    }
+    return await fallbackWrite('categories', categories);
   },
+
   addCategory: async (category: Omit<Category, 'id'>): Promise<Category> => {
-    const categories = await db.getCategories();
     const newCat: Category = {
       ...category,
       id: `cat-${Date.now()}`
     };
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        await CategoryModel.create(newCat);
+        return newCat;
+      } catch (err) {
+        console.error('MongoDB addCategory error:', err);
+      }
+    }
+    const categories = await db.getCategories();
     categories.push(newCat);
-    await db.saveCategories(categories);
+    await fallbackWrite('categories', categories);
     return newCat;
   },
+
   deleteCategory: async (id: string): Promise<boolean> => {
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        await CategoryModel.deleteOne({ id });
+        return true;
+      } catch (err) {
+        console.error('MongoDB deleteCategory error:', err);
+      }
+    }
     const categories = await db.getCategories();
     const filtered = categories.filter(c => c.id !== id);
-    return await db.saveCategories(filtered);
+    return await fallbackWrite('categories', filtered);
   },
 
   // USERS / AUTH
   getUsers: async (): Promise<User[]> => {
-    return await readJSON<User[]>('users', initialUsers);
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        let users = await UserModel.find().lean();
+        if (!users || users.length === 0) {
+          await UserModel.insertMany(initialUsers);
+          users = await UserModel.find().lean();
+        }
+        return JSON.parse(JSON.stringify(users));
+      } catch (err) {
+        console.error('MongoDB getUsers error:', err);
+      }
+    }
+    return await fallbackRead<User[]>('users', initialUsers);
   },
+
   saveUsers: async (users: User[]): Promise<boolean> => {
-    return await writeJSON('users', users);
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        await UserModel.deleteMany({});
+        await UserModel.insertMany(users);
+        return true;
+      } catch (err) {
+        console.error('MongoDB saveUsers error:', err);
+      }
+    }
+    return await fallbackWrite('users', users);
   },
+
   findUserByEmail: async (email: string): Promise<User | undefined> => {
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        const user = await UserModel.findOne({ email: new RegExp(`^${email}$`, 'i') }).lean();
+        if (user) return JSON.parse(JSON.stringify(user));
+      } catch (err) {
+        console.error('MongoDB findUserByEmail error:', err);
+      }
+    }
     const users = await db.getUsers();
     return users.find(u => u.email.toLowerCase() === email.toLowerCase());
   },
+
   createUser: async (user: Omit<User, 'id' | 'createdAt'>): Promise<User> => {
-    const users = await db.getUsers();
     const newUser: User = {
       ...user,
       id: `usr-${Date.now()}`,
       createdAt: new Date().toISOString()
     };
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        await UserModel.create(newUser);
+        return newUser;
+      } catch (err) {
+        console.error('MongoDB createUser error:', err);
+      }
+    }
+    const users = await db.getUsers();
     users.push(newUser);
-    await db.saveUsers(users);
+    await fallbackWrite('users', users);
     return newUser;
   },
 
   // ORDERS
   getOrders: async (): Promise<Order[]> => {
-    return await readJSON<Order[]>('orders', initialOrders);
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        let orders = await OrderModel.find().sort({ createdAt: -1 }).lean();
+        if (!orders || orders.length === 0) {
+          await OrderModel.insertMany(initialOrders);
+          orders = await OrderModel.find().sort({ createdAt: -1 }).lean();
+        }
+        return JSON.parse(JSON.stringify(orders));
+      } catch (err) {
+        console.error('MongoDB getOrders error:', err);
+      }
+    }
+    return await fallbackRead<Order[]>('orders', initialOrders);
   },
+
   saveOrders: async (orders: Order[]): Promise<boolean> => {
-    return await writeJSON('orders', orders);
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        await OrderModel.deleteMany({});
+        await OrderModel.insertMany(orders);
+        return true;
+      } catch (err) {
+        console.error('MongoDB saveOrders error:', err);
+      }
+    }
+    return await fallbackWrite('orders', orders);
   },
+
   getOrderByIdOrTracking: async (query: string): Promise<Order | undefined> => {
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        const clean = query.trim();
+        const order = await OrderModel.findOne({
+          $or: [
+            { id: new RegExp(`^${clean}$`, 'i') },
+            { trackingCode: new RegExp(`^${clean}$`, 'i') }
+          ]
+        }).lean();
+        if (order) return JSON.parse(JSON.stringify(order));
+      } catch (err) {
+        console.error('MongoDB getOrderByIdOrTracking error:', err);
+      }
+    }
     const orders = await db.getOrders();
     const cleanQuery = query.trim().toUpperCase();
     return orders.find(o => o.id.toUpperCase() === cleanQuery || o.trackingCode.toUpperCase() === cleanQuery);
   },
+
   createOrder: async (orderData: Omit<Order, 'id' | 'trackingCode' | 'createdAt' | 'updatedAt'>): Promise<Order> => {
-    const orders = await db.getOrders();
     const randomNum = Math.floor(10000 + Math.random() * 90000);
     const id = `ORD-${randomNum}`;
     const trackingCode = `MP-TRK-${randomNum}`;
@@ -549,17 +676,43 @@ export const db = {
       updatedAt: now
     };
 
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        await OrderModel.create(newOrder);
+        return newOrder;
+      } catch (err) {
+        console.error('MongoDB createOrder error:', err);
+      }
+    }
+
+    const orders = await db.getOrders();
     orders.unshift(newOrder);
-    await db.saveOrders(orders);
+    await fallbackWrite('orders', orders);
     return newOrder;
   },
+
   updateOrderStatus: async (id: string, status: Order['orderStatus']): Promise<Order | null> => {
+    const conn = await connectToDatabase();
+    if (conn) {
+      try {
+        const updated = await OrderModel.findOneAndUpdate(
+          { id },
+          { orderStatus: status, updatedAt: new Date().toISOString() },
+          { new: true }
+        ).lean();
+        if (updated) return JSON.parse(JSON.stringify(updated));
+      } catch (err) {
+        console.error('MongoDB updateOrderStatus error:', err);
+      }
+    }
+
     const orders = await db.getOrders();
     const index = orders.findIndex(o => o.id === id);
     if (index === -1) return null;
     orders[index].orderStatus = status;
     orders[index].updatedAt = new Date().toISOString();
-    await db.saveOrders(orders);
+    await fallbackWrite('orders', orders);
     return orders[index];
   },
 

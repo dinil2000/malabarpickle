@@ -1,6 +1,18 @@
-# Malabar Pickle - Free Vercel & Netlify Deployment Guide
+## 🍃 Step 2: MongoDB Atlas Cloud Database Setup (100% Permanent Data)
 
-This document provides step-by-step instructions on deploying the **Malabar Pickle** web application to **Vercel** or **Netlify** for 100% FREE, including free server setup, user login/registration data storage, and domain hosting.
+The application uses **MongoDB Atlas** for 100% permanent data storage across all Vercel cold starts.
+
+### Adding MongoDB URI to Vercel Environment Variables:
+1. Go to your [Vercel Dashboard](https://vercel.com/dashboard) $\rightarrow$ Select project **`malabarpickle`**.
+2. Click on **Settings** $\rightarrow$ **Environment Variables**.
+3. Add a new variable:
+   - **Key:** `MONGODB_URI`
+   - **Value:** `mongodb+srv://dinildasc:<YOUR_PASSWORD>@cluster0.1dzg1im.mongodb.net/malabarpickle?retryWrites=true&w=majority&appName=Cluster0`
+   *(Replace `<YOUR_PASSWORD>` with your actual MongoDB Atlas database password)*
+4. Click **Save**.
+5. Go to **Deployments** $\rightarrow$ Click `...` next to latest build $\rightarrow$ Click **Redeploy**.
+
+Once connected, all Users, Products, Categories, and Orders are stored permanently inside your MongoDB Atlas cluster!
 
 ---
 

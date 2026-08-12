@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { User, Phone, Mail, Lock, MapPin, ArrowRight, ShieldCheck } from 'lucide-react';
+import { User as UserIcon, Phone, Mail, Lock, MapPin, ArrowRight, ShieldCheck, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -14,6 +14,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [street, setStreet] = useState('');
   const [city, setCity] = useState('Kochi');
   const [state, setState] = useState('Kerala');
@@ -26,8 +27,35 @@ export default function RegisterPage() {
     e.preventDefault();
     setError('');
 
-    if (!name || !email || !phone || !password) {
+    // 1. Basic required fields check
+    if (!name.trim() || !email.trim() || !phone.trim() || !password || !confirmPassword) {
       setError('Please fill in all required account fields.');
+      return;
+    }
+
+    // 2. Email format validation
+    const emailRegex = /\S+@\S+\.\S+/;
+    if (!emailRegex.test(email.trim())) {
+      setError('Please enter a valid email address (e.g. name@example.com).');
+      return;
+    }
+
+    // 3. Phone number validation (at least 10 digits)
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    if (cleanPhone.length < 10) {
+      setError('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    // 4. Password minimum length check
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long.');
+      return;
+    }
+
+    // 5. Repeat Password match check
+    if (password !== confirmPassword) {
+      setError('Passwords do not match! Please verify your password.');
       return;
     }
 
@@ -35,11 +63,11 @@ export default function RegisterPage() {
 
     try {
       const payload = {
-        name,
-        email,
-        phone,
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
         password,
-        address: street ? { street, city, state, pincode } : undefined
+        address: street.trim() ? { street: street.trim(), city, state, pincode } : undefined
       };
 
       const res = await fetch('/api/auth/register', {
@@ -55,15 +83,18 @@ export default function RegisterPage() {
         login(data.user);
         router.push('/account');
       } else {
-        setError(data.error || 'Registration failed.');
+        setError(data.error || 'Registration failed. Email may already be in use.');
       }
     } catch (err) {
       console.error(err);
-      setError('An error occurred during account creation.');
+      setError('An error occurred during account creation. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+
+  const isPasswordMatching = confirmPassword.length > 0 && password === confirmPassword;
+  const isPasswordMismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
   return (
     <div className="container mx-auto px-4 py-12 flex justify-center items-center">
@@ -77,13 +108,14 @@ export default function RegisterPage() {
             Create Malabar Pickle Account
           </h1>
           <p className="text-xs text-gray-500">
-            Sign up to manage addresses, save order history, and receive exclusive offers.
+            Sign up to track orders, save shipping address, and get exclusive pickle offers.
           </p>
         </div>
 
         {error && (
-          <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl font-medium">
-            {error}
+          <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl font-medium flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+            <span>{error}</span>
           </div>
         )}
 
@@ -99,7 +131,7 @@ export default function RegisterPage() {
                 onChange={(e) => setName(e.target.value)}
                 className="w-full pl-9 pr-3 py-2.5 border border-amber-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-crimson"
               />
-              <User className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+              <UserIcon className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
             </div>
           </div>
 
@@ -135,20 +167,60 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          <div className="space-y-1">
-            <label className="font-semibold text-gray-700">Password *</label>
-            <div className="relative">
-              <input
-                type="password"
-                required
-                placeholder="Minimum 6 characters"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-9 pr-3 py-2.5 border border-amber-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-crimson"
-              />
-              <Lock className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+          {/* Password Fields */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="font-semibold text-gray-700">Password *</label>
+              <div className="relative">
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  placeholder="Min 6 characters"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2.5 border border-amber-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-crimson"
+                />
+                <Lock className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-semibold text-gray-700">Repeat Password *</label>
+              <div className="relative">
+                <input
+                  type="password"
+                  required
+                  placeholder="Confirm password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className={`w-full pl-9 pr-3 py-2.5 border rounded-xl focus:outline-none focus:ring-1 ${
+                    isPasswordMatching
+                      ? 'border-emerald-500 ring-emerald-500 bg-emerald-50/20'
+                      : isPasswordMismatch
+                      ? 'border-red-500 ring-red-500 bg-red-50/20'
+                      : 'border-amber-200 focus:ring-brand-crimson'
+                  }`}
+                />
+                <Lock className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+              </div>
             </div>
           </div>
+
+          {/* Password Match Status Indicator */}
+          {confirmPassword.length > 0 && (
+            <div className="text-[11px] font-semibold flex items-center gap-1 pt-0.5">
+              {isPasswordMatching ? (
+                <span className="text-emerald-700 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Passwords Match
+                </span>
+              ) : (
+                <span className="text-red-600 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5" /> Passwords do not match
+                </span>
+              )}
+            </div>
+          )}
 
           <div className="pt-2 border-t border-gray-100 space-y-3">
             <span className="font-bold text-gray-800 flex items-center gap-1">
@@ -206,7 +278,7 @@ export default function RegisterPage() {
         </form>
 
         <p className="text-[11px] text-gray-400 text-center flex items-center justify-center gap-1">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Account details encrypted & saved in Vercel Storage
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Account details encrypted & saved in MongoDB Cloud Database
         </p>
 
         <div className="text-center pt-2 border-t border-gray-100 text-xs text-gray-600">

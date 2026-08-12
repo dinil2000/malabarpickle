@@ -23,7 +23,7 @@ export default function AdminCustomersPage() {
 
   useEffect(() => {
     if (!isLoading && (!user || user.role !== 'admin')) {
-      router.push('/login');
+      router.push('/admin/login');
       return;
     }
     if (user?.role === 'admin') {

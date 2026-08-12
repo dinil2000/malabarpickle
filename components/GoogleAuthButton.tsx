@@ -13,100 +13,22 @@ export default function GoogleAuthButton({ mode = 'login' }: GoogleAuthButtonPro
   const { login } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isGsiLoaded, setIsGsiLoaded] = useState(false);
 
-  // Handle Google OAuth Credential Response
-  const handleGoogleCallback = async (response: any) => {
+  // Authenticate user with MongoDB backend
+  const authenticateWithBackend = async (payload: { email: string; name?: string; picture?: string; googleId?: string }) => {
     setLoading(true);
     setError('');
-    try {
-      // Decode JWT Payload from Google Credential Token
-      const base64Url = response.credential.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(
-        atob(base64)
-          .split('')
-          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-          .join('')
-      );
-      const payload = JSON.parse(jsonPayload);
 
+    try {
       const res = await fetch('/api/auth/google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: payload.email,
-          name: payload.name,
-          picture: payload.picture,
-          googleId: payload.sub
-        })
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        login(data.user);
-        if (data.user.role === 'admin') {
-          router.push('/admin');
-        } else {
-          router.push('/account');
-        }
-      } else {
-        setError(data.error || 'Google authentication failed.');
-      }
-    } catch (err) {
-      console.error('Google Callback Error:', err);
-      setError('An error occurred during Google Sign-In.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    // Load Google Identity Services SDK Script
-    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-
-    if (clientId) {
-      const script = document.createElement('script');
-      script.src = 'https://accounts.google.com/gsi/client';
-      script.async = true;
-      script.onload = () => {
-        if (window.google?.accounts?.id) {
-          window.google.accounts.id.initialize({
-            client_id: clientId,
-            callback: handleGoogleCallback
-          });
-          const btnDiv = document.getElementById('google-btn-container');
-          if (btnDiv) {
-            window.google.accounts.id.renderButton(btnDiv, {
-              theme: 'outline',
-              size: 'large',
-              width: '100%',
-              text: mode === 'register' ? 'signup_with' : 'signin_with'
-            });
-          }
-        }
-      };
-      document.body.appendChild(script);
-    }
-  }, [mode]);
-
-  // Demo / Fallback Gmail Sign-In
-  const handleQuickGmailLogin = async () => {
-    const userGmail = prompt('Enter your Gmail address to Sign In / Register:', 'user@gmail.com');
-    if (!userGmail || !userGmail.includes('@')) return;
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const res = await fetch('/api/auth/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: userGmail,
-          name: userGmail.split('@')[0].replace('.', ' '),
-          picture: 'https://lh3.googleusercontent.com/a/default-user',
-          googleId: `g_${Date.now()}`
+          name: payload.name || payload.email.split('@')[0],
+          picture: payload.picture || 'https://lh3.googleusercontent.com/a/default-user',
+          googleId: payload.googleId || `g_${Date.now()}`
         })
       });
 
@@ -130,20 +52,109 @@ export default function GoogleAuthButton({ mode = 'login' }: GoogleAuthButtonPro
     }
   };
 
+  // Handle Google OAuth Credential Token Callback
+  const handleGoogleCallback = async (response: any) => {
+    try {
+      const base64Url = response.credential.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(
+        atob(base64)
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      );
+      const payload = JSON.parse(jsonPayload);
+
+      await authenticateWithBackend({
+        email: payload.email,
+        name: payload.name,
+        picture: payload.picture,
+        googleId: payload.sub
+      });
+    } catch (err) {
+      console.error('Google Callback Error:', err);
+      setError('Failed to parse Google OAuth token.');
+    }
+  };
+
+  useEffect(() => {
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+
+    // Load Google Identity Services SDK Script
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => {
+      setIsGsiLoaded(true);
+      if (clientId && window.google?.accounts?.id) {
+        window.google.accounts.id.initialize({
+          client_id: clientId,
+          callback: handleGoogleCallback,
+          auto_select: false
+        });
+      }
+    };
+    document.body.appendChild(script);
+  }, []);
+
+  // Trigger Google Account Chooser Popup Window
+  const handleGoogleButtonClick = () => {
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+
+    if (clientId && window.google?.accounts?.id) {
+      // Open Official Google Account Chooser Popup Window
+      window.google.accounts.id.prompt((notification: any) => {
+        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+          // Fallback to Google OAuth Token Client Popup if One-Tap is dismissed
+          if (window.google?.accounts?.oauth2) {
+            const tokenClient = window.google.accounts.oauth2.initTokenClient({
+              client_id: clientId,
+              scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+              callback: async (tokenResponse: any) => {
+                if (tokenResponse.access_token) {
+                  const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                    headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
+                  }).then((r) => r.json());
+                  await authenticateWithBackend({
+                    email: userInfo.email,
+                    name: userInfo.name,
+                    picture: userInfo.picture,
+                    googleId: userInfo.sub
+                  });
+                }
+              }
+            });
+            tokenClient.requestAccessToken();
+          }
+        }
+      });
+      return;
+    }
+
+    // Prompt fallback if Client ID is not configured yet in environment
+    const userGmail = prompt('Enter your Gmail address to Sign In / Register via Google Account Chooser:', 'dinil2000@gmail.com');
+    if (!userGmail || !userGmail.includes('@')) return;
+
+    authenticateWithBackend({
+      email: userGmail.trim(),
+      name: userGmail.split('@')[0].replace('.', ' '),
+      picture: 'https://lh3.googleusercontent.com/a/default-user',
+      googleId: `google_${Date.now()}`
+    });
+  };
+
   return (
     <div className="w-full space-y-2">
       {error && <p className="text-xs text-red-600 text-center font-medium">{error}</p>}
 
-      <div id="google-btn-container" className="w-full"></div>
-
-      {/* Official Google Styled Button */}
+      {/* Google Account Chooser Trigger Button */}
       <button
         type="button"
-        onClick={handleQuickGmailLogin}
+        onClick={handleGoogleButtonClick}
         disabled={loading}
-        className="w-full py-3 px-4 bg-white border border-gray-300 hover:border-gray-400 rounded-xl text-xs font-bold text-gray-700 hover:bg-gray-50 transition shadow-sm flex items-center justify-center gap-3"
+        className="w-full py-3 px-4 bg-white border border-gray-300 hover:border-gray-400 rounded-xl text-xs font-bold text-gray-700 hover:bg-gray-50 transition shadow-sm flex items-center justify-center gap-3 active:scale-[0.99]"
       >
-        <svg className="w-4 h-4" viewBox="0 0 24 24">
+        <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24">
           <path
             fill="#4285F4"
             d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -163,10 +174,10 @@ export default function GoogleAuthButton({ mode = 'login' }: GoogleAuthButtonPro
         </svg>
         <span>
           {loading
-            ? 'Connecting to Google...'
+            ? 'Authenticating with Google...'
             : mode === 'register'
             ? 'Register with Google / Gmail'
-            : 'Continue with Google / Gmail'}
+            : 'Continue with Google'}
         </span>
       </button>
     </div>

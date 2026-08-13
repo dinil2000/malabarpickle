@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
-import { ShieldCheck, Lock, CreditCard, Smartphone, Building, MessageSquare, ArrowRight, CheckCircle2, QrCode } from 'lucide-react';
-import PaymentGatewayModal from '@/components/PaymentGatewayModal';
+import { ShieldCheck, Lock, CreditCard, Smartphone, Building, MessageSquare, ArrowRight, CheckCircle2 } from 'lucide-react';
+import RazorpayCheckout from '@/components/RazorpayCheckout';
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -24,10 +24,9 @@ export default function CheckoutPage() {
   const [notes, setNotes] = useState('');
 
   // Payment Selection
-  const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'Card' | 'Netbanking' | 'WhatsApp'>('UPI');
-  const [isGatewayOpen, setIsGatewayOpen] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'Razorpay' | 'UPI' | 'Card' | 'COD'>('Razorpay');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [orderCreated, setOrderCreated] = useState<{ id: string; trackingCode: string } | null>(null);
+  const [orderCreated, setOrderCreated] = useState<{ id: string; trackingCode: string; paymentId: string } | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -51,21 +50,8 @@ export default function CheckoutPage() {
     );
   }
 
-  // Open Payment Gateway Modal
-  const handleOpenGateway = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!customerName.trim() || !customerPhone.trim() || !street.trim() || !city.trim() || !pincode.trim()) {
-      alert('Please fill out all required shipping and contact fields.');
-      return;
-    }
-
-    setIsGatewayOpen(true);
-  };
-
-  // Called when payment is completed in PaymentGatewayModal
-  const handlePaymentSuccess = async (selectedMethod: string, transactionId: string) => {
-    setIsGatewayOpen(false);
+  // Called when Razorpay or COD payment completes
+  const handlePaymentSuccess = async (razorpayPaymentId: string) => {
     setIsSubmitting(true);
 
     try {
@@ -93,9 +79,9 @@ export default function CheckoutPage() {
         discountAmount: discount,
         deliveryFee,
         totalAmount,
-        paymentMethod: selectedMethod || paymentMethod,
-        paymentStatus: selectedMethod === 'COD' ? 'COD' : 'Paid',
-        transactionId,
+        paymentMethod: paymentMethod === 'COD' ? 'COD' : 'Razorpay (UPI/Card/NetBanking)',
+        paymentStatus: paymentMethod === 'COD' ? 'COD' : 'Paid',
+        transactionId: razorpayPaymentId,
         notes: notes.trim()
       };
 
@@ -110,15 +96,9 @@ export default function CheckoutPage() {
       if (data.success) {
         setOrderCreated({
           id: data.order.id,
-          trackingCode: data.order.trackingCode
+          trackingCode: data.order.trackingCode,
+          paymentId: razorpayPaymentId
         });
-
-        if (paymentMethod === 'WhatsApp') {
-          const msg = encodeURIComponent(
-            `Hi Malabar Pickle! I placed order #${data.order.id}.\nTotal: ₹${totalAmount}\nItems: ${cart.map(c => `${c.productName} (${c.weight} x${c.quantity})`).join(', ')}`
-          );
-          window.open(`https://wa.me/919876543210?text=${msg}`, '_blank');
-        }
 
         clearCart();
       } else {
@@ -152,11 +132,15 @@ export default function CheckoutPage() {
             <span className="font-extrabold text-brand-dark">{orderCreated.id}</span>
           </div>
           <div className="flex justify-between items-center text-xs">
+            <span className="text-gray-500">Razorpay Payment ID:</span>
+            <span className="font-mono text-emerald-700 font-bold">{orderCreated.paymentId}</span>
+          </div>
+          <div className="flex justify-between items-center text-xs">
             <span className="text-gray-500">Tracking Code:</span>
             <span className="font-extrabold text-brand-crimson font-mono">{orderCreated.trackingCode}</span>
           </div>
           <div className="flex justify-between items-center text-xs pt-2 border-t border-amber-200">
-            <span className="text-gray-500">Total Amount:</span>
+            <span className="text-gray-500">Total Paid:</span>
             <span className="font-extrabold text-lg text-gray-900">₹{totalAmount}</span>
           </div>
         </div>
@@ -183,15 +167,14 @@ export default function CheckoutPage() {
     <div className="container mx-auto px-4 py-8 space-y-8">
       <div className="space-y-1 text-center sm:text-left">
         <h1 className="text-2xl sm:text-3xl font-extrabold font-serif text-brand-dark flex items-center gap-2 justify-center sm:justify-start">
-          <Lock className="w-6 h-6 text-brand-crimson" /> Express Secure Checkout
+          <Lock className="w-6 h-6 text-brand-crimson" /> Official Razorpay Checkout
         </h1>
-        <p className="text-xs text-gray-500">Enter delivery address and select payment gateway.</p>
+        <p className="text-xs text-gray-500">Enter delivery address and complete payment via Razorpay Gateway.</p>
       </div>
 
-      <form onSubmit={handleOpenGateway} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left 2 columns: Address & Payment Method */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Left 2 columns: Shipping Form */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Shipping Address Box */}
           <div className="bg-white p-6 rounded-2xl border border-amber-100 shadow-sm space-y-4">
             <h3 className="font-bold text-base text-gray-900 border-b border-gray-100 pb-3 flex items-center gap-2">
               <span className="w-6 h-6 rounded-full bg-brand-dark text-white text-xs flex items-center justify-center font-bold">1</span>
@@ -224,7 +207,7 @@ export default function CheckoutPage() {
               </div>
 
               <div className="sm:col-span-2 space-y-1">
-                <label className="font-semibold text-gray-700">Email Address (Optional for Invoice)</label>
+                <label className="font-semibold text-gray-700">Email Address (For Invoice & Receipt)</label>
                 <input
                   type="email"
                   placeholder="rahul@example.com"
@@ -295,38 +278,50 @@ export default function CheckoutPage() {
             </div>
           </div>
 
-          {/* Payment Options Banner */}
+          {/* Payment Method Selector */}
           <div className="bg-white p-6 rounded-2xl border border-amber-100 shadow-sm space-y-4">
             <h3 className="font-bold text-base text-gray-900 border-b border-gray-100 pb-3 flex items-center gap-2">
               <span className="w-6 h-6 rounded-full bg-brand-dark text-white text-xs flex items-center justify-center font-bold">2</span>
-              Payment Gateway Options
+              Select Payment Option
             </h3>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-center space-y-1">
-                <Smartphone className="w-5 h-5 text-emerald-600 mx-auto" />
-                <span className="font-bold block text-[11px] text-gray-800">UPI / QR Code</span>
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('Razorpay')}
+                className={`p-4 rounded-xl border text-left flex items-center gap-3 transition ${
+                  paymentMethod === 'Razorpay'
+                    ? 'border-brand-crimson bg-red-50/50 ring-1 ring-brand-crimson font-bold text-brand-dark'
+                    : 'border-gray-200 text-gray-700 hover:bg-amber-50'
+                }`}
+              >
+                <CreditCard className="w-6 h-6 text-brand-crimson" />
+                <div>
+                  <span className="block font-bold">Razorpay Online Gateway</span>
+                  <span className="text-[11px] text-gray-500 font-normal">GPay, PhonePe, Cards, NetBanking</span>
+                </div>
+              </button>
 
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-center space-y-1">
-                <CreditCard className="w-5 h-5 text-brand-crimson mx-auto" />
-                <span className="font-bold block text-[11px] text-gray-800">Credit/Debit Cards</span>
-              </div>
-
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-center space-y-1">
-                <Building className="w-5 h-5 text-amber-600 mx-auto" />
-                <span className="font-bold block text-[11px] text-gray-800">Net Banking</span>
-              </div>
-
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-center space-y-1">
-                <MessageSquare className="w-5 h-5 text-emerald-500 mx-auto" />
-                <span className="font-bold block text-[11px] text-gray-800">COD / WhatsApp</span>
-              </div>
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('COD')}
+                className={`p-4 rounded-xl border text-left flex items-center gap-3 transition ${
+                  paymentMethod === 'COD'
+                    ? 'border-brand-crimson bg-red-50/50 ring-1 ring-brand-crimson font-bold text-brand-dark'
+                    : 'border-gray-200 text-gray-700 hover:bg-amber-50'
+                }`}
+              >
+                <MessageSquare className="w-6 h-6 text-emerald-500" />
+                <div>
+                  <span className="block font-bold">Cash on Delivery (COD)</span>
+                  <span className="text-[11px] text-gray-500 font-normal">Pay on doorstep delivery</span>
+                </div>
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Right 1 column: Order Summary */}
+        {/* Right 1 column: Order Summary & Razorpay Trigger */}
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-amber-100 shadow-sm space-y-4">
             <h3 className="font-bold text-base text-gray-900 border-b border-gray-100 pb-3">
@@ -369,41 +364,40 @@ export default function CheckoutPage() {
             </div>
 
             <div className="pt-3 border-t border-gray-200 flex justify-between items-center text-base font-extrabold text-gray-900">
-              <span>Total Payable</span>
+              <span>Total Amount</span>
               <span className="text-xl text-brand-dark">₹{totalAmount}</span>
             </div>
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full py-4 bg-brand-crimson text-white rounded-xl font-bold text-sm hover:bg-brand-dark transition shadow flex items-center justify-center gap-2"
-            >
-              {isSubmitting ? (
-                'Saving Order...'
-              ) : (
-                <>
-                  Proceed to Payment Gateway (₹{totalAmount}) <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
+            {paymentMethod === 'Razorpay' ? (
+              <RazorpayCheckout
+                totalAmount={totalAmount}
+                customerName={customerName}
+                customerPhone={customerPhone}
+                customerEmail={customerEmail}
+                street={street}
+                city={city}
+                pincode={pincode}
+                onPaymentSuccess={handlePaymentSuccess}
+                onPaymentError={(err) => alert(err)}
+                isSubmitting={isSubmitting}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => handlePaymentSuccess(`cod_${Date.now().toString().slice(-8)}`)}
+                disabled={isSubmitting}
+                className="w-full py-4 bg-brand-dark text-white rounded-xl font-bold text-sm hover:bg-black transition shadow flex items-center justify-center gap-2"
+              >
+                {isSubmitting ? 'Placing COD Order...' : <>Confirm Cash on Delivery (₹{totalAmount}) <ArrowRight className="w-4 h-4" /></>}
+              </button>
+            )}
 
             <p className="text-[11px] text-gray-400 text-center flex items-center justify-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> 256-Bit SSL Encrypted Razorpay / PhonePe Gateway
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Razorpay 256-bit Encrypted Security
             </p>
           </div>
         </div>
-      </form>
-
-      {/* Payment Gateway Modal Popup */}
-      <PaymentGatewayModal
-        isOpen={isGatewayOpen}
-        onClose={() => setIsGatewayOpen(false)}
-        totalAmount={totalAmount}
-        customerName={customerName}
-        customerPhone={customerPhone}
-        customerEmail={customerEmail}
-        onPaymentSuccess={handlePaymentSuccess}
-      />
+      </div>
     </div>
   );
 }

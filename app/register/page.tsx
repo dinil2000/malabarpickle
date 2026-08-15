@@ -25,7 +25,6 @@ export default function RegisterPage() {
   // OTP Verification State
   const [step, setStep] = useState<'form' | 'otp'>('form');
   const [otpInput, setOtpInput] = useState('');
-  const [testOtp, setTestOtp] = useState<string | null>(null);
   const [resendTimer, setResendTimer] = useState(60);
   const [canResend, setCanResend] = useState(false);
 
@@ -46,7 +45,7 @@ export default function RegisterPage() {
     return () => clearInterval(interval);
   }, [step, resendTimer]);
 
-  // Step 1: Send OTP to Email
+  // Step 1: Send Real OTP to Customer's Email Inbox
   const handleSendOTP = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setError('');
@@ -92,10 +91,7 @@ export default function RegisterPage() {
 
       if (data.success) {
         setStep('otp');
-        setSuccessMsg(data.message || `6-digit verification code sent to ${email}`);
-        if (data.testOtp) {
-          setTestOtp(data.testOtp);
-        }
+        setSuccessMsg(data.message || `Real 6-digit verification code sent to ${email}`);
         setResendTimer(60);
         setCanResend(false);
       } else {
@@ -115,7 +111,7 @@ export default function RegisterPage() {
     setError('');
 
     if (!otpInput.trim() || otpInput.trim().length !== 6) {
-      setError('Please enter the full 6-digit verification code.');
+      setError('Please enter the full 6-digit verification code sent to your email.');
       return;
     }
 
@@ -165,12 +161,12 @@ export default function RegisterPage() {
             🫙
           </div>
           <h1 className="text-2xl font-extrabold font-serif text-brand-dark">
-            {step === 'form' ? 'Create Malabar Pickle Account' : 'Verify Email Address'}
+            {step === 'form' ? 'Create Malabar Pickle Account' : 'Check Your Email Inbox'}
           </h1>
           <p className="text-xs text-gray-500">
             {step === 'form'
               ? 'Sign up to track orders, save shipping address, and get exclusive pickle offers.'
-              : `Enter the 6-digit code sent to ${email}`}
+              : `We sent a real 6-digit verification code to ${email}`}
           </p>
         </div>
 
@@ -197,7 +193,7 @@ export default function RegisterPage() {
             <div className="flex items-center my-4">
               <div className="flex-grow border-t border-gray-200"></div>
               <span className="flex-shrink mx-3 text-[11px] text-gray-400 font-bold uppercase tracking-wider">
-                Or Register With Email OTP
+                Or Register With Email Real OTP
               </span>
               <div className="flex-grow border-t border-gray-200"></div>
             </div>
@@ -220,7 +216,7 @@ export default function RegisterPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="font-semibold text-gray-700">Email Address *</label>
+                  <label className="font-semibold text-gray-700">Email Address (Receives Real OTP) *</label>
                   <div className="relative">
                     <input
                       type="email"
@@ -351,10 +347,10 @@ export default function RegisterPage() {
                 className="w-full py-3.5 bg-brand-crimson text-white font-bold text-sm rounded-xl hover:bg-brand-dark transition shadow flex items-center justify-center gap-2 mt-4"
               >
                 {loading ? (
-                  'Sending Verification Code...'
+                  'Sending Real Email OTP...'
                 ) : (
                   <>
-                    Send Email Verification OTP <ArrowRight className="w-4 h-4" />
+                    Send Real Email OTP <ArrowRight className="w-4 h-4" />
                   </>
                 )}
               </button>
@@ -362,27 +358,12 @@ export default function RegisterPage() {
           </>
         )}
 
-        {/* STEP 2: Enter 6-Digit Email OTP Screen */}
+        {/* STEP 2: Enter 6-Digit Real Email OTP Screen */}
         {step === 'otp' && (
           <form onSubmit={handleVerifyOTP} className="space-y-5 text-xs">
-            {/* Demo / Test OTP Banner if SMTP not configured */}
-            {testOtp && (
-              <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl text-center space-y-1">
-                <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">
-                  💡 Test Mode Demo OTP Code:
-                </span>
-                <span className="text-2xl font-mono font-extrabold tracking-widest text-brand-crimson">
-                  {testOtp}
-                </span>
-                <p className="text-[10px] text-gray-500">
-                  (Copy and paste this code to verify your registration)
-                </p>
-              </div>
-            )}
-
             <div className="space-y-2 text-center">
               <label className="font-bold text-gray-800 block text-sm">
-                Enter 6-Digit Verification Code:
+                Enter 6-Digit Code Received in Your Email Inbox:
               </label>
               <div className="relative max-w-xs mx-auto">
                 <input
@@ -390,7 +371,7 @@ export default function RegisterPage() {
                   maxLength={6}
                   required
                   autoFocus
-                  placeholder="e.g. 584920"
+                  placeholder="6-digit OTP"
                   value={otpInput}
                   onChange={(e) => setOtpInput(e.target.value.replace(/[^0-9]/g, ''))}
                   className="w-full py-3 px-4 text-center font-mono font-extrabold text-2xl tracking-[0.5em] border-2 border-brand-crimson rounded-2xl focus:outline-none focus:ring-2 focus:ring-amber-400 bg-amber-50/30"
@@ -404,7 +385,7 @@ export default function RegisterPage() {
               disabled={loading || otpInput.length !== 6}
               className="w-full py-3.5 bg-brand-crimson text-white font-bold text-sm rounded-xl hover:bg-brand-dark transition shadow flex items-center justify-center gap-2"
             >
-              {loading ? 'Verifying Code...' : <>Verify & Complete Registration <ArrowRight className="w-4 h-4" /></>}
+              {loading ? 'Verifying Real OTP...' : <>Verify & Complete Registration <ArrowRight className="w-4 h-4" /></>}
             </button>
 
             <div className="flex justify-between items-center text-xs pt-2 border-t border-gray-100">
@@ -425,7 +406,7 @@ export default function RegisterPage() {
                 }`}
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                {canResend ? 'Resend OTP' : `Resend in ${resendTimer}s`}
+                {canResend ? 'Resend Real OTP' : `Resend in ${resendTimer}s`}
               </button>
             </div>
           </form>

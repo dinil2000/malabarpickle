@@ -29,21 +29,27 @@ export async function POST(request: Request) {
     // 2. Generate 6-digit numeric OTP code
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // 3. Store OTP with 10-minute expiry
+    // 3. Store OTP in memory with 10-minute expiry
     storeOTP(cleanEmail, otp);
 
-    // 4. Send Email via Nodemailer
+    // 4. Send Email via Nodemailer to the user's real email inbox
     const emailResult = await sendOTPEmail(cleanEmail, otp, name || 'Customer');
+
+    if (!emailResult.sent && emailResult.message?.includes('SMTP credentials')) {
+      return NextResponse.json({
+        success: false,
+        error: 'Email service is not connected yet. Please configure GMAIL_USER and GMAIL_APP_PASSWORD in Vercel to receive real OTP emails.'
+      }, { status: 400 });
+    }
 
     return NextResponse.json({
       success: true,
-      message: `Verification code sent to ${cleanEmail}`,
-      testOtp: !process.env.SMTP_USER && !process.env.GMAIL_USER ? otp : undefined
+      message: `Real 6-digit verification code sent to ${cleanEmail}`
     });
   } catch (error) {
     console.error('Send OTP Error:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to send OTP code. Please try again.' },
+      { success: false, error: 'Failed to send OTP code to email. Please try again.' },
       { status: 500 }
     );
   }
